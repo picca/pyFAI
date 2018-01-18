@@ -21,6 +21,7 @@ Angle = NewType("Angle", float)
 Calibrant = NewType("Calibrant", Text)
 Detector = NewType("Detector", Text)
 Length = NewType("Length", float)
+NumExpr = NewType("NumExpr", Text)
 Wavelength = NewType("Wavelength", float)
 
 # Typevar
@@ -75,6 +76,14 @@ CalibrationFrame = NamedTuple("CalibrationFrame", [("idx", int),
                                                    ("image", ndarray),
                                                    ("delta", Angle)])
 
+CalibrationFunctions = NamedTuple("CalibrationFunctions",
+                                  [("distance", NumExpr),
+                                   ("poni1", NumExpr),
+                                   ("poni2", NumExpr),
+                                   ("rot1", NumExpr),
+                                   ("rot2", NumExpr),
+                                   ("rot3", NumExpr)])
+
 CalibrationParameters = NamedTuple("CalibrationParameters",
                                    [("distance", Parameter[Length]),
                                     ("poni1", Parameter[Length]),
@@ -93,7 +102,7 @@ Calibration = NamedTuple("Calibration",
                           ("calibrant", Calibrant),
                           ("detector", Detector),
                           ("wavelength", Wavelength),
-                          ("initial_parameters", CalibrationParameters)])
+                          ("functions", Tuple[CalibrationFunctions, List[Parameter]])])  # noqa
 
 
 def gen_metadata_idx(h5file: File,
@@ -190,20 +199,21 @@ def calibration(json: str, params: Calibration) -> None:
                               params.wavelength)
     detector = get_detector(params.detector)
 
-    parameters = {p.name: p.value for p in params.initial_parameters}
-    bounds = {p.name: p.bounds for p in params.initial_parameters}
-    param_names = [p.name for p in params.initial_parameters]
+    (functions, initial_parameters) = params.functions
+    parameters = {p.name: p.value for p in initial_parameters}
+    bounds = {p.name: p.bounds for p in initial_parameters}
+    param_names = [p.name for p in initial_parameters]
 
     # Let's refine poni1 and poni2 also as function of the distance:
 
     trans_function = GeometryTransformation(param_names=param_names,
                                             pos_names=["delta"],
-                                            dist_expr="dist",
-                                            poni1_expr="poni1",  # noqa
-                                            poni2_expr="poni2",  # noqa
-                                            rot1_expr="rot1",
-                                            rot2_expr="rot2_scale * delta + rot2_offset",  # noqa
-                                            rot3_expr="rot3")
+                                            dist_expr=functions.distance,
+                                            poni1_expr=functions.poni1,
+                                            poni2_expr=functions.poni2,
+                                            rot1_expr=functions.rot1,
+                                            rot2_expr=functions.rot2,
+                                            rot3_expr=functions.rot3)
 
     def pos_function(frame: CalibrationFrame) -> Tuple[float]:
         """Definition of the function reading the detector position from the
