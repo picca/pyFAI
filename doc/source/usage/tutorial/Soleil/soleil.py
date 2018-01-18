@@ -13,6 +13,8 @@ from numpy import ndarray
 from pyFAI.goniometer import GeometryTransformation, GoniometerRefinement
 from pyFAI.gui import jupyter
 
+# TODO the label should be part of the calibration frame
+
 # NewTypes
 
 Angle = NewType("Angle", float)
@@ -83,7 +85,8 @@ CalibrationParameters = NamedTuple("CalibrationParameters",
                                     ("rot3", Parameter[Angle])])
 
 Calibration = NamedTuple("Calibration",
-                         [("filename", Text),
+                         [("basedir", Text),
+                          ("filename", Text),
                           ("images_path", DatasetPath),
                           ("deltas_path", DatasetPath),
                           ("idxs", List[int]),
@@ -109,7 +112,7 @@ def gen_metadata_all(h5file: File,
         yield CalibrationFrame(idx, images[idx], deltas[idx])
 
 
-def save_as_edf(calibration: Calibration, basedir: str) -> None:
+def save_as_edf(calibration: Calibration) -> None:
     """Save the multi calib images into edf files in order to do the first
     calibration and print the command line in order to do the
     calibration with pyFAI-calib
@@ -118,13 +121,14 @@ def save_as_edf(calibration: Calibration, basedir: str) -> None:
         for frame in gen_metadata_idx(h5file, calibration):
             base = os.path.basename(calibration.filename)
             output = base + "_{:02d}.edf".format(frame.idx)
-            edfimage(frame.image).write(os.path.join(basedir, output))
+            edfimage(frame.image).write(os.path.join(calibration.basedir, output))  # noqa
+            # temporary until pyFAI-calib2 works
             wavelength = calibration.wavelength * 1e10
-            cmd = "cd {directory} && pyFAI-calib -w {wavelength} --calibrant {calibrant} -D {detector} {filename}".format(directory=basedir,
-                                                                                                                          wavelength=wavelength,
-                                                                                                                          calibrant=calibration.calibrant,
-                                                                                                                          detector=calibration.detector,
-                                                                                                                          filename=output)
+            cmd = "cd {directory} && pyFAI-calib -w {wavelength} --calibrant {calibrant} -D {detector} {filename}".format(directory=calibration.basedir,  # noqa
+                                                                                                                          wavelength=wavelength,  # noqa
+                                                                                                                          calibrant=calibration.calibrant,  # noqa
+                                                                                                                          detector=calibration.detector,  # noqa
+                                                                                                                          filename=output)  # noqa
             print(cmd)
 
 
@@ -149,7 +153,7 @@ def optimize_with_new_images(h5file: File,
     sg = None
     for n, frame in enumerate(gen_metadata_all(h5file, calibration)):
         print()
-        base = os.path.splitext(os.path.basename(calibration.filename))[0]
+        base = os.path.basename(calibration.filename)
 
         label = base + "_%d" % (frame.idx,)
         if label in gonioref.single_geometries:
@@ -220,11 +224,11 @@ def calibration(json: str, params: Calibration) -> None:
 
     with File(params.filename, mode='r') as h5file:
         for frame in gen_metadata_idx(h5file, params):
-            base = os.path.splitext(os.path.basename(params.filename))[0]
+            base = os.path.basename(params.filename)
 
             label = base + "_%d" % (frame.idx,)
-            control_points = params.filename + "_{:02d}.npt".format(frame.idx)
-            ai = pyFAI.load(params.filename + "_{:02d}.poni".format(frame.idx))
+            control_points = os.path.join(params.basedir, base + "_{:02d}.npt".format(frame.idx))  # noqa
+            ai = pyFAI.load(os.path.join(params.basedir, base + "_{:02d}.poni".format(frame.idx)))  # noqa
             print(ai)
 
             gonioref.new_geometry(label, frame.image, frame,
