@@ -111,14 +111,21 @@ def gen_metadata_all(h5file: File,
 
 def save_as_edf(calibration: Calibration, basedir: str) -> None:
     """Save the multi calib images into edf files in order to do the first
-    calibration
+    calibration and print the command line in order to do the
+    calibration with pyFAI-calib
     """
     with File(calibration.filename, mode='r') as h5file:
         for frame in gen_metadata_idx(h5file, calibration):
             base = os.path.basename(calibration.filename)
-            output = os.path.join(basedir, base + "_{:02d}.edf".format(frame.idx))  # noqa
-            print(output)
-            edfimage(frame.image).write(output)
+            output = base + "_{:02d}.edf".format(frame.idx)
+            edfimage(frame.image).write(os.path.join(basedir, output))
+            wavelength = calibration.wavelength * 1e10
+            cmd = "cd {directory} && pyFAI-calib -w {wavelength} --calibrant {calibrant} -D {detector} {filename}".format(directory=basedir,
+                                                                                                                          wavelength=wavelength,
+                                                                                                                          calibrant=calibration.calibrant,
+                                                                                                                          detector=calibration.detector,
+                                                                                                                          filename=output)
+            print(cmd)
 
 
 def get_total_length(calibration: Calibration) -> int:
