@@ -1,7 +1,7 @@
 """ coding: utf-8 """
 
-from typing import Generic, Iterable, Iterator, List, NamedTuple, NewType,\
-    Optional, Text, Tuple, TypeVar, Union
+from typing import Callable, Generic, Iterable, Iterator, List, NamedTuple,\
+    NewType, Optional, Text, Tuple, TypeVar, Union
 
 import os
 import pyFAI
@@ -99,7 +99,7 @@ Calibration = NamedTuple("Calibration",
 
 def gen_metadata_idx(h5file: File,
                      calibration: Calibration,
-                     indexes: Optional[Iterable[int]]) -> Iterator[CalibrationFrame]:
+                     indexes: Optional[Iterable[int]]=None) -> Iterator[CalibrationFrame]:
     images = get_dataset(h5file, calibration.images_path)
     if indexes is None:
         indexes = range(images.shape[0])
@@ -258,31 +258,20 @@ def calibration(json: str,
 
     gonioref.save(json)
 
-    # pylab.show()
-
-
 # Integrate
 
-'''
-def integrate(json: str) -> None:
-    """Integrate a file with a json calibration file"""
-    filename = os.path.join(ROOT, "scan_77_01.nxs")
-    gonio = pyFAI.goniometer.Goniometer.sload(json)
-    wavelength = 4.85945727522e-11
-    multicalib = MultiCalib(os.path.join(ROOT, "scan_4_01.nxs"),
-                            MetaDataSource("",
-                                           H5PathContains("scan_data/actuator_1_1"),
-                                           H5PathOptionalItemValue("MARS/D03-1-CX0__DT__DTC_2D-MT_Tz__#1/raw_value", -1.0)),
-                            [], "LaB6", "xpad_flat", wavelength)
 
-    with h5py.File(filename, mode='r') as h5file:
+def integrate(json: str,
+              params: Calibration,
+              f: Callable[[ndarray], ndarray]) -> None:
+    """Integrate a file with a json calibration file"""
+    gonio = pyFAI.goniometer.Goniometer.sload(json)
+    with File(params.filename, mode='r') as h5file:
         images = []
-        positions = []
-        for metadata in gen_metadata(h5file, multicalib):
-            images.append(metadata.img)
-            positions.append((metadata.tx, metadata.tz))
-        mai = gonio.get_mg(positions)
+        deltas = []
+        for frame in gen_metadata_idx(h5file, params):
+            images.append(f(frame.image))
+            deltas.append((frame.delta,))
+        mai = gonio.get_mg(deltas)
         res = mai.integrate1d(images, 10000)
         jupyter.plot1d(res)
-        pylab.show()
-'''
