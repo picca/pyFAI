@@ -1,7 +1,7 @@
 """ coding: utf-8 """
 
-from typing import Generic, Iterator, List, NamedTuple, NewType, Text, Tuple,\
-    TypeVar, Union
+from typing import Generic, Iterable, Iterator, List, NamedTuple, NewType,\
+    Optional, Text, Tuple, TypeVar, Union
 
 import os
 import pyFAI
@@ -73,6 +73,7 @@ def get_dataset(h5file: File, path: DatasetPath) -> Dataset:
 
 
 CalibrationFrame = NamedTuple("CalibrationFrame", [("idx", int),
+                                                   ("label", Text),
                                                    ("image", ndarray),
                                                    ("delta", Angle)])
 
@@ -83,15 +84,6 @@ CalibrationFunctions = NamedTuple("CalibrationFunctions",
                                    ("rot1", NumExpr),
                                    ("rot2", NumExpr),
                                    ("rot3", NumExpr)])
-
-CalibrationParameters = NamedTuple("CalibrationParameters",
-                                   [("distance", Parameter[Length]),
-                                    ("poni1", Parameter[Length]),
-                                    ("poni2", Parameter[Length]),
-                                    ("rot1_scale", float),
-                                    ("rot1_offset", Parameter[Angle]),
-                                    ("rot2", Parameter[Angle]),
-                                    ("rot3", Parameter[Angle])])
 
 Calibration = NamedTuple("Calibration",
                          [("basedir", Text),
@@ -106,19 +98,16 @@ Calibration = NamedTuple("Calibration",
 
 
 def gen_metadata_idx(h5file: File,
-                     calibration: Calibration) -> Iterator[CalibrationFrame]:
+                     calibration: Calibration,
+                     indexes: Optional[Iterable[int]]) -> Iterator[CalibrationFrame]:
     images = get_dataset(h5file, calibration.images_path)
+    if indexes is None:
+        indexes = range(images.shape[0])
     deltas = get_dataset(h5file, calibration.deltas_path)
-    for idx in calibration.idxs:
-        yield CalibrationFrame(idx, images[idx], deltas[idx])
-
-
-def gen_metadata_all(h5file: File,
-                     calibration: Calibration) -> Iterator[CalibrationFrame]:
-    images = get_dataset(h5file, calibration.images_path)
-    deltas = get_dataset(h5file, calibration.deltas_path)
-    for idx in range(images.shape[0]):
-        yield CalibrationFrame(idx, images[idx], deltas[idx])
+    base = os.path.basename(calibration.filename)
+    for idx in indexes:
+        label = base + "_{:d}".format(idx)
+        yield CalibrationFrame(idx, label, images[idx], deltas[idx])
 
 
 def save_as_edf(calibration: Calibration) -> None:
@@ -127,7 +116,7 @@ def save_as_edf(calibration: Calibration) -> None:
     calibration with pyFAI-calib
     """
     with File(calibration.filename, mode='r') as h5file:
-        for frame in gen_metadata_idx(h5file, calibration):
+        for frame in gen_metadata_idx(h5file, calibration, calibration.idxs):
             base = os.path.basename(calibration.filename)
             output = base + "_{:02d}.edf".format(frame.idx)
             edfimage(frame.image).write(os.path.join(calibration.basedir, output))  # noqa
@@ -152,6 +141,7 @@ def optimize_with_new_images(h5file: File,
                              calibration: Calibration,
                              gonioref,
                              calibrant: pyFAI.calibrant.Calibrant,
+                             indexes: Iterable[int],
                              pts_per_deg: float=1) -> None:
     """This function adds new images to the pool of data used for the
     refinement.  A set of new control points are extractred and a
@@ -160,15 +150,13 @@ def optimize_with_new_images(h5file: File,
 
     """
     sg = None
-    for n, frame in enumerate(gen_metadata_all(h5file, calibration)):
+    for frame in gen_metadata_idx(h5file, calibration, indexes):
         print()
-        base = os.path.basename(calibration.filename)
-
-        label = base + "_%d" % (frame.idx,)
-        if label in gonioref.single_geometries:
+        if frame.label in gonioref.single_geometries:
             continue
-        print(label)
-        sg = gonioref.new_geometry(label, image=frame.image, metadata=frame,
+        print(frame.label)
+        sg = gonioref.new_geometry(frame.label, image=frame.image,
+                                   metadata=frame,
                                    calibrant=calibrant)
         print(sg.extract_cp(pts_per_deg=pts_per_deg))
     print("*"*50)
@@ -190,7 +178,9 @@ def get_detector(detector: Detector) -> pyFAI.Detector:
     return pyFAI.detector_factory(detector)
 
 
-def calibration(json: str, params: Calibration) -> None:
+def calibration(json: str,
+                params: Calibration,
+                indexes: Optional[Iterable[int]]=None) -> None:
     """Do a calibration with a bunch of images"""
 
     # Definition of the geometry refinement: the parameter order is
@@ -233,15 +223,13 @@ def calibration(json: str, params: Calibration) -> None:
     # Let's populate the goniometer refinement object with the know poni
 
     with File(params.filename, mode='r') as h5file:
-        for frame in gen_metadata_idx(h5file, params):
+        for frame in gen_metadata_idx(h5file, params, params.idxs):
             base = os.path.basename(params.filename)
-
-            label = base + "_%d" % (frame.idx,)
             control_points = os.path.join(params.basedir, base + "_{:02d}.npt".format(frame.idx))  # noqa
             ai = pyFAI.load(os.path.join(params.basedir, base + "_{:02d}.poni".format(frame.idx)))  # noqa
             print(ai)
 
-            gonioref.new_geometry(label, frame.image, frame,
+            gonioref.new_geometry(frame.label, frame.image, frame,
                                   control_points, calibrant, ai)
 
         print("Filled refinement object:")
@@ -261,7 +249,8 @@ def calibration(json: str, params: Calibration) -> None:
 
     for multi in [params]:
         with File(multi.filename, mode='r') as h5file:
-            optimize_with_new_images(h5file, multi, gonioref, calibrant)
+            optimize_with_new_images(h5file, multi, gonioref,
+                                     calibrant, indexes)
 
     for idx, sg in enumerate(gonioref.single_geometries.values()):
         sg.geometry_refinement.set_param(gonioref.get_ai(sg.get_position()).param)  # noqa
