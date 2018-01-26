@@ -9,7 +9,8 @@ import pyFAI
 from fabio.edfimage import edfimage
 from functools import partial
 from h5py import Dataset, File
-from numpy import ndarray
+from numpy import arange, arctan, ndarray, logical_or, ma, rad2deg, where, zeros_like
+from numpy.ma import MaskedArray
 from pyFAI.goniometer import GeometryTransformation, GoniometerRefinement
 from pyFAI.gui import jupyter
 
@@ -69,7 +70,7 @@ def get_dataset(h5file: File, path: DatasetPath) -> Dataset:
                                         path.attribute, path.value))
     return res
 
-# Calibration
+# Calibration K6C
 
 
 CalibrationFrame = NamedTuple("CalibrationFrame", [("idx", int),
@@ -99,7 +100,7 @@ Calibration = NamedTuple("Calibration",
 
 def gen_metadata_idx(h5file: File,
                      calibration: Calibration,
-                     indexes: Optional[Iterable[int]]=None) -> Iterator[CalibrationFrame]:
+                     indexes: Optional[Iterable[int]]=None) -> Iterator[CalibrationFrame]:  # noqa
     images = get_dataset(h5file, calibration.images_path)
     if indexes is None:
         indexes = range(images.shape[0])
@@ -109,6 +110,68 @@ def gen_metadata_idx(h5file: File,
         label = base + "_{:d}".format(idx)
         yield CalibrationFrame(idx, label, images[idx], deltas[idx])
 
+# Mythen Calibration
+
+
+Mythen = NamedTuple("Mythen", [("dataset", Dataset)])
+
+MythenFrame = NamedTuple("Mythen", [("data", MaskedArray),
+                                    ("tth", ndarray)])
+
+MythenCalibrationFrame = NamedTuple("MythenCalibrationFrame",
+                                    [("idx", int),
+                                     ("label", Text),
+                                     ("mythens", List[MythenFrame]),
+                                     ("tth2C", Angle)])
+
+MythenCalibration = NamedTuple("MythenCalibration",
+                               [("basedir", Text),
+                                ("filename", Text),
+                                ("mythens", List[Mythen]),
+                                ("tth2C", DatasetPath)])
+
+
+def mythenTth(tth2C: float, module: int) -> ndarray:
+    """Compute the real tth for each module"""
+    center = 640  # pixel
+    module_central = 4
+    distance = 720.0  # mm
+    decalage = 60 + (module_central - module) * 5.7
+    return tth2C - decalage - rad2deg(arctan((arange(1280) - center) * 0.05 / distance))
+
+
+def mkMythenFrame(data: ndarray,
+                  tth2C: Angle,
+                  module: int) -> MythenFrame:
+    # compute the masks
+    mask = zeros_like(data, dtype=bool)
+    mask[:20] = mask[-20:] = True
+    mask = logical_or(mask,
+                      where(data == -2, True, False))
+    data = ma.masked_array(data, mask)
+
+    tth = mythenTth(tth2C, module)
+
+    return MythenFrame(data, tth)
+
+
+def gen_metadata_idx_mythen(h5file: File,
+                            calibration: MythenCalibration,
+                            indexes: Optional[Iterable[int]]=None) -> Iterator[MythenCalibrationFrame]:  # noqa
+    h5nodes = [get_dataset(h5file, m.dataset) for m in calibration.mythens]
+    tth2C = get_dataset(h5file, calibration.tth2C)
+
+    base = os.path.basename(calibration.filename)
+
+    if indexes is None:
+        indexes = range(h5nodes[0].shape[0])
+
+    for idx in indexes:
+        label = base + "_{:d}".format(idx)
+        tth = tth2C[idx]
+        yield MythenCalibrationFrame(idx, label,
+                                     [mkMythenFrame(node[idx], tth, m) for m, node in enumerate(h5nodes)],
+                                     tth)
 
 def save_as_edf(calibration: Calibration) -> None:
     """Save the multi calib images into edf files in order to do the first
