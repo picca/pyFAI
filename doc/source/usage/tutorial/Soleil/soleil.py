@@ -9,7 +9,7 @@ import pyFAI
 from fabio.edfimage import edfimage
 from functools import partial
 from h5py import Dataset, File
-from numpy import arange, arctan, ndarray, logical_or, ma, rad2deg, where, zeros_like
+from numpy import arange, arctan, array, ndarray, logical_or, ma, rad2deg, where, zeros_like
 from numpy.ma import MaskedArray
 from pyFAI.goniometer import GeometryTransformation, GoniometerRefinement
 from pyFAI.gui import jupyter
@@ -23,6 +23,7 @@ Calibrant = NewType("Calibrant", Text)
 Detector = NewType("Detector", Text)
 Length = NewType("Length", float)
 NumExpr = NewType("NumExpr", Text)
+Threshold = NewType("Threshold", int)
 Wavelength = NewType("Wavelength", float)
 
 # Typevar
@@ -86,6 +87,9 @@ CalibrationFunctions = NamedTuple("CalibrationFunctions",
                                    ("rot2", NumExpr),
                                    ("rot3", NumExpr)])
 
+Functions = NewType("Functions",
+                    Tuple['CalibrationFunctions', List['Parameter']])
+
 Calibration = NamedTuple("Calibration",
                          [("basedir", Text),
                           ("filename", Text),
@@ -95,7 +99,7 @@ Calibration = NamedTuple("Calibration",
                           ("calibrant", Calibrant),
                           ("detector", Detector),
                           ("wavelength", Wavelength),
-                          ("functions", Tuple[CalibrationFunctions, List[Parameter]])])  # noqa
+                          ("functions", Functions)])  # noqa
 
 
 def gen_metadata_idx(h5file: File,
@@ -112,8 +116,8 @@ def gen_metadata_idx(h5file: File,
 
 # Mythen Calibration
 
-
-Mythen = NamedTuple("Mythen", [("dataset", Dataset)])
+Mythen = NamedTuple("Mythen", [("dataset", DatasetPath),
+                               ("functions", Functions)])  # noqa
 
 MythenFrame = NamedTuple("Mythen", [("data", MaskedArray),
                                     ("tth", ndarray)])
@@ -127,17 +131,30 @@ MythenCalibrationFrame = NamedTuple("MythenCalibrationFrame",
 MythenCalibration = NamedTuple("MythenCalibration",
                                [("basedir", Text),
                                 ("filename", Text),
+                                ("calibrant", Calibrant),
+                                ("wavelength", Wavelength),
+                                ("threshold", Threshold),
                                 ("mythens", List[Mythen]),
-                                ("tth2C", DatasetPath)])
+                                ("tth2C", DatasetPath),
+                                ("rings", List[int])])
+
+Pixel = NewType("Pixel", int)
+
+Peak = NamedTuple("Peak", [("position", Pixel),
+                           ("intensity", int),
+                           ("tth", Angle),
+                           ("index", int)])
 
 
-def mythenTth(tth2C: float, module: int) -> ndarray:
+def mythenTth(tth2C: float, module: int, positions: Optional[List[int]]=None) -> ndarray:
     """Compute the real tth for each module"""
-    center = 640  # pixel
+    size = 1280  # pixels
+    center = size / 2  # pixel
     module_central = 4
-    distance = 720.0  # mm
+    distance = 720  # mm
     decalage = 60 + (module_central - module) * 5.7
-    return tth2C - decalage - rad2deg(arctan((arange(1280) - center) * 0.05 / distance))
+    positions = array(positions) if positions else arange(1280)
+    return tth2C - decalage - rad2deg(arctan((positions - center) * 0.05 / distance))  # noqa
 
 
 def mkMythenFrame(data: ndarray,
@@ -170,8 +187,10 @@ def gen_metadata_idx_mythen(h5file: File,
         label = base + "_{:d}".format(idx)
         tth = tth2C[idx]
         yield MythenCalibrationFrame(idx, label,
-                                     [mkMythenFrame(node[idx], tth, m) for m, node in enumerate(h5nodes)],
+                                     [mkMythenFrame(node[idx], tth, m)
+                                      for m, node in enumerate(h5nodes)],
                                      tth)
+
 
 def save_as_edf(calibration: Calibration) -> None:
     """Save the multi calib images into edf files in order to do the first
