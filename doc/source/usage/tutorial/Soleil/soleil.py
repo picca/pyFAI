@@ -332,7 +332,8 @@ def calibration(json: str,
 
 def integrate(json: str,
               params: Calibration,
-              f: Callable[[ndarray], ndarray]) -> None:
+              f: Callable[[ndarray], ndarray],
+              plot_calibrant: bool=False) -> None:
     """Integrate a file with a json calibration file"""
     gonio = pyFAI.goniometer.Goniometer.sload(json)
     with File(params.filename, mode='r') as h5file:
@@ -343,4 +344,8 @@ def integrate(json: str,
             deltas.append((frame.delta,))
         mai = gonio.get_mg(deltas)
         res = mai.integrate1d(images, 10000)
-        jupyter.plot1d(res)
+        if plot_calibrant:
+            calibrant = get_calibrant(params.calibrant, params.wavelength)
+            jupyter.plot1d(res, calibrant)
+        else:
+            jupyter.plot1d(res)
