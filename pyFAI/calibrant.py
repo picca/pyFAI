@@ -4,7 +4,7 @@
 #    Project: Azimuthal integration
 #             https://github.com/silx-kit/pyFAI
 #
-#    Copyright (C) European Synchrotron Radiation Facility, Grenoble, France
+#    Copyright (C) 2014-2018 European Synchrotron Radiation Facility, Grenoble, France
 #
 #    Principal author:       Jérôme Kieffer (Jerome.Kieffer@ESRF.eu)
 #
@@ -41,7 +41,7 @@ __author__ = "Jerome Kieffer"
 __contact__ = "Jerome.Kieffer@ESRF.eu"
 __license__ = "MIT"
 __copyright__ = "European Synchrotron Radiation Facility, Grenoble, France"
-__date__ = "10/01/2018"
+__date__ = "15/03/2018"
 __status__ = "production"
 
 
@@ -52,7 +52,8 @@ import itertools
 from math import sin, asin, cos, sqrt, pi, ceil
 import threading
 from .utils import get_calibration_dir
-from .decorators import deprecated
+from .utils.decorators import deprecated
+from . import units
 
 logger = logging.getLogger(__name__)
 epsilon = 1.0e-6  # for floating point comparison
@@ -384,7 +385,7 @@ class Calibrant(object):
         :rtype: Calibrant
         """
         return Calibrant(filename=self._filename,
-                         dSpacing=self.dSpacing,
+                         dSpacing=self._dSpacing,
                          wavelength=self._wavelength)
 
     def __repr__(self):
@@ -494,21 +495,24 @@ class Calibrant(object):
     wavelength = property(get_wavelength, set_wavelength)
 
     def _calc_2th(self):
+        "Calculate the 2theta positions for all peaks"
         if self._wavelength is None:
             logger.error("Cannot calculate 2theta angle without knowing wavelength")
             return
-        self._2th = []
-        for ds in self._dSpacing:
+        _2th = []
+        dSpacing = self._dSpacing[:]  # explicit copy
+        for ds in dSpacing:
             try:
                 tth = 2.0 * asin(5.0e9 * self._wavelength / ds)
             except ValueError:
-                tth = None
-                if self._2th:
-                    self._dSpacing = self._dSpacing[:len(self._2th)]
+                l = len(_2th)
+                if l:
+                    self._dSpacing = self._dSpacing[:l]
                     # avoid turning around...
                     break
             else:
-                self._2th.append(tth)
+                _2th.append(tth)
+        self._2th = _2th
 
     def _calc_dSpacing(self):
         if self._wavelength is None:
@@ -517,6 +521,7 @@ class Calibrant(object):
         self._dSpacing = [5.0e9 * self._wavelength / sin(tth / 2.0) for tth in self._2th]
 
     def get_2th(self):
+        "Returns the 2theta positions for all peaks (cached)"
         if not self._2th:
             ds = self.dSpacing  # forces the file reading if not done
             if not ds:
@@ -526,16 +531,36 @@ class Calibrant(object):
                     self._calc_2th()
         return self._2th
 
-    def get_2th_index(self, angle):
+    def get_2th_index(self, angle, delta=None):
+        """return the index in the 2theta angle index
+        
+        :param angle: expected angle in radians
+        :param delta: precision on angle
+        :return: 0-based index or None
         """
-        return the index in the 2theta angle index
+        if angle and angle in self._2th:
+            return self._2th.index(angle)
+        if delta:
+            d2th = abs(numpy.array(self._2th) - angle)
+            if d2th.min() < delta:
+                return d2th.argmin()
+
+    def get_peaks(self, unit="2th_deg"):
+        """Calculate the peak position as 
+        :return: numpy array (unlike other methods which return lists) 
         """
-        idx = None
-        if angle:
-            idx = self._2th.find(angle)
-        if idx == -1:
-            idx = None
-        return idx
+        unit = units.to_unit(unit)
+        scale = unit.scale
+        name = unit.name
+        size = len(self.get_2th())
+        if name.startswith("2th"):
+            values = numpy.array(self.get_2th())
+        elif name.startswith("q"):
+            values = 20.0 * pi / numpy.array(self.get_dSpacing()[:size])
+        else:
+            raise ValueError("Only 2\theta and *q* units are supported for now")
+
+        return values * scale
 
     def fake_calibration_image(self, ai, shape=None, Imax=1.0, U=0, V=0, W=0.0001):
         """

@@ -4,7 +4,7 @@
 #    Project: Azimuthal integration
 #             https://github.com/silx-kit/pyFAI
 #
-#    Copyright (C) 2015 European Synchrotron Radiation Facility, Grenoble, France
+#    Copyright (C) 2015-2018 European Synchrotron Radiation Facility, Grenoble, France
 #
 #    Principal author:       Jérôme Kieffer (Jerome.Kieffer@ESRF.eu)
 #
@@ -34,89 +34,88 @@ __author__ = "Valentin Valls"
 __contact__ = "valentin.valls@esrf.fr"
 __license__ = "MIT"
 __copyright__ = "European Synchrotron Radiation Facility, Grenoble, France"
-__date__ = "10/01/2018"
+__date__ = "05/03/2018"
 
 import sys
 import unittest
-import runpy
 import logging
+import subprocess
+from pyFAI.test.utilstest import UtilsTest
 
-logger = logging.getLogger(__name__)
-
-try:
-    from ..gui import qt
-except ImportError:
-    qt = None
-
-try:
-    import silx
-except ImportError:
-    silx = None
+_logger = logging.getLogger(__name__)
 
 
 class TestScriptsHelp(unittest.TestCase):
 
-    def executeAppHelp(self, module):
-        old_sys_argv = list(sys.argv)
-        try:
-            sys.argv = [None, "--help"]
-            runpy.run_module(mod_name=module, run_name="__main__", alter_sys=True)
-        except SystemExit as e:
-            self.assertEquals(e.args[0], 0)
-        finally:
-            sys.argv = old_sys_argv
+    def executeCommandLine(self, command_line, env):
+        """Execute a command line.
 
-    def testCheckCalib(self):
-        if qt is None:
-            self.skipTest("Library Qt is not available")
-        self.executeAppHelp("pyFAI.app.check_calib")
+        Log output as debug in case of bad return code.
+        """
+        _logger.info("Execute: %s", " ".join(command_line))
+        p = subprocess.Popen(command_line,
+                             stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,
+                             env=env)
+        out, err = p.communicate()
+        _logger.info("Return code: %d", p.returncode)
+        try:
+            out = out.decode('utf-8')
+        except UnicodeError:
+            pass
+        try:
+            err = err.decode('utf-8')
+        except UnicodeError:
+            pass
+
+        if p.returncode != 0:
+            _logger.info("stdout:")
+            _logger.info("%s", out)
+            _logger.info("stderr:")
+            _logger.info("%s", err)
+        else:
+            _logger.debug("stdout:")
+            _logger.debug("%s", out)
+            _logger.debug("stderr:")
+            _logger.debug("%s", err)
+        self.assertEqual(p.returncode, 0)
+
+    def executeAppHelp(self, script_name, module_name):
+        script = UtilsTest.script_path(script_name, module_name)
+        env = UtilsTest.get_test_env()
+        if script.endswith(".exe"):
+            command_line = [script]
+        else:
+            command_line = [sys.executable, script]
+        command_line.append("--help")
+        self.executeCommandLine(command_line, env)
 
     def testDetector2Nexus(self):
-        self.executeAppHelp("pyFAI.app.detector2nexus")
+        self.executeAppHelp("detector2nexus", "pyFAI.app.detector2nexus")
 
     def testDiffMap(self):
-        self.executeAppHelp("pyFAI.app.diff_map")
+        self.executeAppHelp("diff_map", "pyFAI.app.diff_map")
 
     def testDiffTomo(self):
-        self.executeAppHelp("pyFAI.app.diff_tomo")
+        self.executeAppHelp("diff_tomo", "pyFAI.app.diff_tomo")
 
     def testEigerMask(self):
-        self.executeAppHelp("pyFAI.app.eiger_mask")
-
-    def testMxcalibrate(self):
-        if qt is None:
-            self.skipTest("Library Qt is not available")
-        self.executeAppHelp("pyFAI.app.mx_calibrate")
+        self.executeAppHelp("eiger-mask", "pyFAI.app.eiger_mask")
 
     def testPyfaiAverage(self):
-        self.executeAppHelp("pyFAI.app.average")
+        self.executeAppHelp("pyFAI-average", "pyFAI.app.average")
 
     def testPyfaiBenchmark(self):
-        self.executeAppHelp("pyFAI.app.benchmark")
-
-    def testPyfaiCalib(self):
-        if qt is None:
-            self.skipTest("Library Qt is not available")
-        self.executeAppHelp("pyFAI.app.calib")
-
-    def testPyfaiDrawmask(self):
-        if qt is None or silx is None:
-            self.skipTest("Library Qt and silx are not available")
-        self.executeAppHelp("pyFAI.app.drawmask")
+        self.executeAppHelp("pyFAI-benchmark", "pyFAI.app.benchmark")
 
     def testPyfaiIntegrate(self):
-        self.executeAppHelp("pyFAI.app.integrate")
-
-    def testPyfaiRecalib(self):
-        if qt is None:
-            self.skipTest("Library Qt is not available")
-        self.executeAppHelp("pyFAI.app.recalib")
+        self.executeAppHelp("pyFAI-integrate", "pyFAI.app.integrate")
 
     def testPyfaiSaxs(self):
-        self.executeAppHelp("pyFAI.app.saxs")
+        self.executeAppHelp("pyFAI-saxs", "pyFAI.app.saxs")
 
     def testPyfaiWaxs(self):
-        self.executeAppHelp("pyFAI.app.waxs")
+        self.executeAppHelp("pyFAI-waxs", "pyFAI.app.waxs")
 
 
 def suite():

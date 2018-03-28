@@ -4,7 +4,7 @@
 #    Project: Azimuthal integration
 #             https://github.com/silx-kit/pyFAI
 #
-#    Copyright (C) 2015-2016 European Synchrotron Radiation Facility, Grenoble, France
+#    Copyright (C) 2015-2018 European Synchrotron Radiation Facility, Grenoble, France
 #
 #    Principal author:       Jérôme Kieffer (Jerome.Kieffer@ESRF.eu)
 #
@@ -85,7 +85,7 @@ __author__ = "Jerome Kieffer"
 __contact__ = "Jerome.Kieffer@ESRF.eu"
 __license__ = "MIT"
 __copyright__ = "European Synchrotron Radiation Facility, Grenoble, France"
-__date__ = "10/01/2018"
+__date__ = "20/02/2018"
 __status__ = "development"
 
 import threading
@@ -172,8 +172,8 @@ class Worker(object):
                  unit="r_mm", dummy=None, delta_dummy=None,
                  azimuthalIntgrator=None):
         """
-        :param azimuthalIntegrator AzimuthalIntegrator: pyFAI.AzimuthalIntegrator instance
-        :param azimuthalIntgrator AzimuthalIntegrator: pyFAI.AzimuthalIntegrator instance (deprecated)
+        :param AzimuthalIntegrator azimuthalIntegrator: An AzimuthalIntegrator instance
+        :param AzimuthalIntegrator azimuthalIntgrator: An AzimuthalIntegrator instance (deprecated)
         :param shapeIn: image size in input
         :param shapeOut: Integrated size: can be (1,2000) for 1D integration
         :param unit: can be "2th_deg, r_mm or q_nm^-1 ...
@@ -195,7 +195,8 @@ class Worker(object):
 #            self.config = config
 #        elif type(config) in types.StringTypes:
 #            if os.path.isfile(config):
-#                self.config = json.load(open(config, "r"))
+#                with open(config, "r") as f:
+#                    self.config = json.load(f)
 #                self.config_file(config)
 #            else:
 #                self.config = json.loads(config)
@@ -383,7 +384,8 @@ class Worker(object):
     def setJsonConfig(self, jsonconfig):
         print("start config ...")
         if os.path.isfile(jsonconfig):
-            config = json.load(open(jsonconfig, "r"))
+            with open(jsonconfig, "r") as f:
+                config = json.load(f)
         else:
             config = json.loads(jsonconfig)
         if "poni" in config:

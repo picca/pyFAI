@@ -4,7 +4,7 @@
 #    Project: Azimuthal integration
 #             https://github.com/silx-kit/pyFAI
 #
-#    Copyright (C) 2015 European Synchrotron Radiation Facility, Grenoble, France
+#    Copyright (C) 2015-2018 European Synchrotron Radiation Facility, Grenoble, France
 #
 #    Principal author:       Jérôme Kieffer (Jerome.Kieffer@ESRF.eu)
 #
@@ -34,7 +34,7 @@ __author__ = "Jérôme Kieffer"
 __contact__ = "Jerome.Kieffer@ESRF.eu"
 __license__ = "MIT"
 __copyright__ = "European Synchrotron Radiation Facility, Grenoble, France"
-__date__ = "10/01/2018"
+__date__ = "20/02/2018"
 
 
 import unittest
@@ -48,7 +48,8 @@ if logger.getEffectiveLevel() <= logging.INFO:
     import pylab
 
 from ..third_party import six
-from .. import load, detectors, AzimuthalIntegrator
+from .. import load, detectors
+from ..azimuthalIntegrator import AzimuthalIntegrator
 
 
 class TestMask(unittest.TestCase):

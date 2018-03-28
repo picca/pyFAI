@@ -4,7 +4,7 @@
 #    Project: Azimuthal integration
 #             https://github.com/silx-kit/pyFAI
 #
-#    Copyright (C) European Synchrotron Radiation Facility, Grenoble, France
+#    Copyright (C) 2012-2018 European Synchrotron Radiation Facility, Grenoble, France
 #
 #    Principal author:       Jérôme Kieffer (Jerome.Kieffer@ESRF.eu)
 #
@@ -39,7 +39,7 @@ __author__ = "Jerome Kieffer"
 __contact__ = "Jerome.Kieffer@ESRF.eu"
 __license__ = "MIT"
 __copyright__ = "European Synchrotron Radiation Facility, Grenoble, France"
-__date__ = "10/01/2018"
+__date__ = "20/02/2018"
 __status__ = "production"
 __docformat__ = 'restructuredtext'
 
@@ -53,7 +53,7 @@ from collections import namedtuple, OrderedDict
 
 from . import detectors
 from . import units
-from .decorators import deprecated
+from .utils.decorators import deprecated
 from .utils import crc32
 from . import utils
 
@@ -62,11 +62,13 @@ logger = logging.getLogger(__name__)
 try:
     from .ext import _geometry
 except ImportError:
+    logger.debug("Backtrace", exc_info=True)
     _geometry = None
 
 try:
     from .ext import bilinear
 except ImportError:
+    logger.debug("Backtrace", exc_info=True)
     bilinear = None
 
 PolarizationArray = namedtuple("PolarizationArray", ["array", "checksum"])
@@ -615,7 +617,7 @@ class Geometry(object):
         :param unit: string like "2th_deg" or an instance of pyFAI.units.Unit
         :param use_cython: set to False to use the slower Python path (for tests)
         :param scale: set to False for returning the internal representation
-                        (S.I. often) which is faster
+                      (S.I. often) which is faster
         :return: 3d array with shape=(\*shape,4,2) the two elements are:
             - dim3[0]: radial angle 2th, q, r...
             - dim3[1]: azimuthal angle chi
@@ -710,7 +712,7 @@ class Geometry(object):
 
         :param shape: expected shape
         :type shape: 2-tuple of integer
-        :return: 3d array with shape=(*shape,4,2) the two elements are:
+        :return: 3d array with shape=(\*shape,4,2) the two elements are:
            * dim3[0]: radial angle 2th
            * dim3[1]: azimuthal angle chi
         """
@@ -724,7 +726,7 @@ class Geometry(object):
 
         :param shape: expected shape
         :type shape: 2-tuple of integer
-        :return: 3d array with shape=(*shape,4,2) the two elements are (scattering vector q, azimuthal angle chi)
+        :return: 3d array with shape=(\*shape,4,2) the two elements are (scattering vector q, azimuthal angle chi)
         """
         return self.corner_array(shape, unit=units.Q, use_cython=False, scale=False)
 
@@ -736,7 +738,7 @@ class Geometry(object):
 
         :param shape: expected shape
         :type shape: 2-tuple of integer
-        :return: 3d array with shape=(*shape,4,2) the two elements are (radial distance, azimuthal angle chi)
+        :return: 3d array with shape=(\*shape,4,2) the two elements are (radial distance, azimuthal angle chi)
         """
         return self.corner_array(shape, unit=units.R, use_cython=False, scale=False)
 
@@ -748,7 +750,7 @@ class Geometry(object):
 
         :param shape: expected shape
         :type shape: 2-tuple of integer
-        :return: 3d array with shape=(*shape,4,2) the two elements are (reciprocal spacing squared, azimuthal angle chi)
+        :return: 3d array with shape=(\*shape,4,2) the two elements are (reciprocal spacing squared, azimuthal angle chi)
         """
         return self.corner_array(shape, unit=units.RecD2_NM, scale=False)
 

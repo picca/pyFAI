@@ -36,7 +36,7 @@ from __future__ import print_function, division
 __author__ = "Jérôme Kieffer"
 __contact__ = "Jerome.Kieffer@esrf.eu"
 __license__ = "MIT"
-__date__ = "10/01/2018"
+__date__ = "15/03/2018"
 __copyright__ = "European Synchrotron Radiation Facility, Grenoble, France"
 
 import os
@@ -46,13 +46,15 @@ import numpy
 import logging
 import scipy.optimize
 import scipy.interpolate
+
+logger = logging.getLogger(__name__)
+
 try:
     # multithreaded version in Cython: about 2x faster on large array evaluation
-    from . import _bispev as fitpack
+    from .ext import _bispev as fitpack
 except ImportError:
+    logger.debug("Backtrace", exc_info=True)
     from scipy.interpolate import fitpack
-import traceback
-logger = logging.getLogger(__name__)
 
 
 class Spline(object):
@@ -245,8 +247,8 @@ class Spline(object):
                     self.ySplineCoeff = numpy.array(databloc[splineKnotsXLen + splineKnotsYLen:], dtype=numpy.float32)
                 # Keep this at the end
                 indexLine += 1
-        except:
-            traceback.print_exc()
+        except Exception:
+            logger.error("Error while reading file", exc_info=True)
             raise IOError("Spline File parsing error: %s" % (filename))
 
     def comparison(self, ref, verbose=False):
@@ -747,38 +749,3 @@ class Spline(object):
         other.grid = self.grid
         other.array2spline()
         return other
-
-
-def main():
-    """
-    Some tests ....
-    """
-    center = (1000, 1000)
-    tilt = 10  # deg
-    rotation_tilt = 0  # deg
-    distance = 100  # mm
-    spline_file = "example.spline"
-    for keyword in sys.argv[1:]:
-        if os.path.isfile(keyword):
-            spline_file = keyword
-        elif keyword.lower().find("center=") in [0, 1, 2]:
-            center = [float(i) for i in keyword.split("=")[1].split("x")]
-        elif keyword.lower().find("dist=") in [0, 1, 2]:
-            distance = float(keyword.split("=")[1])
-        elif keyword.lower().find("tilt=") in [0, 1, 2]:
-            tilt = float(keyword.split("=")[1])
-        elif keyword.lower().find("rot=") in [0, 1, 2]:
-            rotation_tilt = float(keyword.split("=")[1])
-
-    spline = Spline()
-    spline.read(spline_file)
-    logger.info("Original Spline: %s", spline)
-    spline.spline2array(timing=True)
-    tilted = spline.tilt(center, tilt, rotation_tilt, distance, timing=True)
-    tilted.writeEDF("%s-tilted-t%i-p%i-d%i" %
-                    (os.path.splitext(spline_file)[0],
-                     tilt, rotation_tilt, distance))
-
-
-if __name__ == '__main__':
-    main()
