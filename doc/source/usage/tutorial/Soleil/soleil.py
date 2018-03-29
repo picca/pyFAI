@@ -4,6 +4,7 @@ from typing import Callable, Generic, Iterable, Iterator, List, NamedTuple,\
     NewType, Optional, Text, Tuple, TypeVar, Union
 
 import os
+import numpy
 import pyFAI
 
 from fabio.edfimage import edfimage
@@ -333,7 +334,8 @@ def calibration(json: str,
 def integrate(json: str,
               params: Calibration,
               f: Callable[[ndarray], ndarray],
-              plot_calibrant: bool=False) -> None:
+              plot_calibrant: bool=False,
+              save: bool=False) -> None:
     """Integrate a file with a json calibration file"""
     gonio = pyFAI.goniometer.Goniometer.sload(json)
     with File(params.filename, mode='r') as h5file:
@@ -344,8 +346,11 @@ def integrate(json: str,
             deltas.append((frame.delta,))
         mai = gonio.get_mg(deltas)
         res = mai.integrate1d(images, 10000)
-        if plot_calibrant:
-            calibrant = get_calibrant(params.calibrant, params.wavelength)
-            jupyter.plot1d(res, calibrant)
+        if save is True:
+            numpy.savetxt(os.path.basename(params.filename) + '.txt', numpy.vstack([res.radial, res.intensity]).T)
         else:
-            jupyter.plot1d(res)
+            if plot_calibrant:
+                calibrant = get_calibrant(params.calibrant, params.wavelength)
+                jupyter.plot1d(res, calibrant)
+            else:
+                jupyter.plot1d(res)
