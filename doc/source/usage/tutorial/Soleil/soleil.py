@@ -4,6 +4,7 @@ from typing import Callable, Generic, Iterable, Iterator, List, NamedTuple,\
     NewType, Optional, Text, Tuple, TypeVar, Union
 
 import os
+import numpy
 import pyFAI
 
 from fabio.edfimage import edfimage
@@ -96,6 +97,7 @@ Calibration = NamedTuple("Calibration",
                           ("images_path", DatasetPath),
                           ("deltas_path", DatasetPath),
                           ("idxs", List[int]),
+                          ("to_use", Callable[[CalibrationFrame], bool]),
                           ("calibrant", Calibrant),
                           ("detector", Detector),
                           ("wavelength", Wavelength),
@@ -112,7 +114,10 @@ def gen_metadata_idx(h5file: File,
     base = os.path.basename(calibration.filename)
     for idx in indexes:
         label = base + "_{:d}".format(idx)
-        yield CalibrationFrame(idx, label, images[idx], deltas[idx])
+        frame = CalibrationFrame(idx, label, images[idx], deltas[idx])
+        if calibration.to_use(frame) == True:
+            yield CalibrationFrame(idx, label, images[idx], deltas[idx])
+
 
 # Mythen Calibration
 
@@ -197,6 +202,7 @@ def save_as_edf(calibration: Calibration) -> None:
     calibration and print the command line in order to do the
     calibration with pyFAI-calib
     """
+    cmds = []
     with File(calibration.filename, mode='r') as h5file:
         for frame in gen_metadata_idx(h5file, calibration, calibration.idxs):
             base = os.path.basename(calibration.filename)
@@ -204,12 +210,13 @@ def save_as_edf(calibration: Calibration) -> None:
             edfimage(frame.image).write(os.path.join(calibration.basedir, output))  # noqa
             # temporary until pyFAI-calib2 works
             wavelength = calibration.wavelength * 1e10
-            cmd = "cd {directory} && pyFAI-calib -w {wavelength} --calibrant {calibrant} -D {detector} {filename}".format(directory=calibration.basedir,  # noqa
+            cmd = "cd {directory} && pyFAI-calib2 -w {wavelength} --calibrant {calibrant} -D {detector} {filename}".format(directory=calibration.basedir,  # noqa
                                                                                                                           wavelength=wavelength,  # noqa
                                                                                                                           calibrant=calibration.calibrant,  # noqa
                                                                                                                           detector=calibration.detector,  # noqa
                                                                                                                           filename=output)  # noqa
-            print(cmd)
+            cmds.append(cmd)
+    return cmds
 
 
 def get_total_length(calibration: Calibration) -> int:
@@ -345,7 +352,9 @@ def calibration(json: str,
 
 def integrate(json: str,
               params: Calibration,
-              f: Callable[[ndarray], ndarray]) -> None:
+              f: Callable[[ndarray], ndarray],
+              plot_calibrant: bool=False,
+              save: bool=False) -> None:
     """Integrate a file with a json calibration file"""
     gonio = pyFAI.goniometer.Goniometer.sload(json)
     with File(params.filename, mode='r') as h5file:
@@ -356,4 +365,11 @@ def integrate(json: str,
             deltas.append((frame.delta,))
         mai = gonio.get_mg(deltas)
         res = mai.integrate1d(images, 10000)
-        jupyter.plot1d(res)
+        if save is True:
+            numpy.savetxt(os.path.basename(params.filename) + '.txt', numpy.vstack([res.radial, res.intensity]).T)
+        else:
+            if plot_calibrant:
+                calibrant = get_calibrant(params.calibrant, params.wavelength)
+                jupyter.plot1d(res, calibrant)
+            else:
+                jupyter.plot1d(res)
