@@ -106,7 +106,8 @@ Calibration = NamedTuple("Calibration",
 
 def gen_metadata_idx(h5file: File,
                      calibration: Calibration,
-                     indexes: Optional[Iterable[int]]=None) -> Iterator[CalibrationFrame]:  # noqa
+                     indexes: Optional[Iterable[int]]=None,
+                     to_use: Optional[bool]=True) -> Iterator[CalibrationFrame]:  # noqa
     images = get_dataset(h5file, calibration.images_path)
     if indexes is None:
         indexes = range(images.shape[0])
@@ -115,7 +116,7 @@ def gen_metadata_idx(h5file: File,
     for idx in indexes:
         label = base + "_{:d}".format(idx)
         frame = CalibrationFrame(idx, label, images[idx], deltas[idx])
-        if calibration.to_use(frame) == True:
+        if calibration.to_use(frame) == True or to_use == False:
             yield CalibrationFrame(idx, label, images[idx], deltas[idx])
 
 
@@ -339,7 +340,7 @@ def calibration(json: str,
     for multi in [params]:
         with File(multi.filename, mode='r') as h5file:
             optimize_with_new_images(h5file, multi, gonioref,
-                                     calibrant, indexes)
+                                     calibrant, indexes, pts_per_deg=10)
 
     for idx, sg in enumerate(gonioref.single_geometries.values()):
         sg.geometry_refinement.set_param(gonioref.get_ai(sg.get_position()).param)  # noqa
@@ -354,22 +355,33 @@ def integrate(json: str,
               params: Calibration,
               f: Callable[[ndarray], ndarray],
               plot_calibrant: bool=False,
-              save: bool=False) -> None:
+              save: bool=False,
+              n: int=10000,
+              lst_mask: ndarray=None,
+              lst_flat: ndarray=None,
+              to_use: bool=False) -> None:
     """Integrate a file with a json calibration file"""
     gonio = pyFAI.goniometer.Goniometer.sload(json)
     with File(params.filename, mode='r') as h5file:
         images = []
         deltas = []
-        for frame in gen_metadata_idx(h5file, params):
+        for frame in gen_metadata_idx(h5file, params, to_use=to_use):
             images.append(f(frame.image))
             deltas.append((frame.delta,))
         mai = gonio.get_mg(deltas)
-        res = mai.integrate1d(images, 10000)
+        res = mai.integrate1d(images, n,
+                              lst_mask=lst_mask, lst_flat=lst_flat)
         if save is True:
-            numpy.savetxt(os.path.basename(params.filename) + '.txt', numpy.vstack([res.radial, res.intensity]).T)
+            try:
+                os.makedirs(params.basedir)
+            except os.error:
+                pass
+            numpy.savetxt(os.path.join(params.basedir,
+                                       os.path.basename(params.filename) + '.txt'),
+                          numpy.vstack([res.radial, res.intensity]).T)
+        if plot_calibrant:
+            calibrant = get_calibrant(params.calibrant, params.wavelength)
+            jupyter.plot1d(res, calibrant)
         else:
-            if plot_calibrant:
-                calibrant = get_calibrant(params.calibrant, params.wavelength)
-                jupyter.plot1d(res, calibrant)
-            else:
-                jupyter.plot1d(res)
+            jupyter.plot1d(res)
+        return res
