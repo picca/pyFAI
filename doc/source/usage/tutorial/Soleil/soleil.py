@@ -42,6 +42,8 @@ class Parameter(Generic[T]):
 
 
 DatasetPathContains = NamedTuple("DatasetPathContains", [("path", Text)])
+DatasetPathContainsDefault = NamedTuple("DatasetPathContains", [("path", Text),
+                                                                ("default", float)])
 
 DatasetPathWithAttribute = NamedTuple("DatasetPathWithAttribute",
                                       [('attribute', Text),
@@ -63,15 +65,31 @@ def _v_item(key: Text, name: Text, obj: Dataset) -> Dataset:
         return obj
 
 
-def get_dataset(h5file: File, path: DatasetPath) -> Dataset:
+def get_dataset(h5file: File, path: DatasetPath) -> Optional[Dataset]:
     res = None
     if isinstance(path, DatasetPathContains):
+        res = h5file.visititems(partial(_v_item, path.path))
+    elif isinstance(path, DatasetPathContainsDefault):
         res = h5file.visititems(partial(_v_item, path.path))
     elif isinstance(path, DatasetPathWithAttribute):
         res = h5file.visititems(partial(_v_attrs,
                                         path.attribute, path.value))
     return res
 
+
+def get_dataset_value(h5file: File, path: DatasetPath, idx: int) -> float:
+    res = None
+    dataset = get_dataset(h5file, path)
+    if isinstance(path, DatasetPathContains):
+        res = dataset[idx]
+    elif isinstance(path, DatasetPathContainsDefault):
+        if dataset is None:
+            res = path.default
+        else:
+            res = dataset[0]
+    elif isinstance(path, DatasetPathWithAttribute):
+        res = dataset[idx]
+    return res
 
 # PyFAI calibration functions
 
@@ -100,7 +118,7 @@ CalibrationMarsTxTz = NamedTuple("CalibrationMarsTxTz",
                                   ("filename", Text),
                                   ("images_path", DatasetPath),
                                   ("tx_path", DatasetPath),
-                                  ("tz_value", float),
+                                  ("tz_path", DatasetPath),
                                   ("idxs", List[int]),
                                   ("to_use", Callable[[CalibrationMarsTxTzFrame], bool]),
                                   ("calibrant", Calibrant),
@@ -116,7 +134,7 @@ def gen_metadata_idx_mars_tx_tz(h5file: File,
     if indexes is None:
         indexes = range(images.shape[0])
     tx = get_dataset(h5file, calibration.tx_path)
-    tz = calibration.tz_value
+    tz = get_dataset_value(h5file, calibration.tz_path, 0)
     base = os.path.basename(calibration.filename)
     for idx in indexes:
         label = base + "_{:d}".format(idx)
@@ -168,7 +186,16 @@ def optimize_with_new_images_mars_tx_tz(h5file: File,
         sg = gonioref.new_geometry(frame.label, image=frame.image,
                                    metadata=frame,
                                    calibrant=calibrant)
-        print(sg.extract_cp(pts_per_deg=pts_per_deg))
+        print(sg.extract_cp(max_rings=6, pts_per_deg=pts_per_deg))
+
+        # filter the cp to remove unwanted values.
+        cp = sg.control_points
+        cp.pop(0)
+
+        sg.geometry_refinement.data = numpy.asarray(cp.getList(), dtype=numpy.float64)
+        sg.control_points = cp
+        print(sg.geometry_refinement.data)
+
     print("*"*50)
     gonioref.refine2()
     if sg:
@@ -176,10 +203,9 @@ def optimize_with_new_images_mars_tx_tz(h5file: File,
         jupyter.display(sg=sg)
 
 
-
-def calibration_mars_tx_tz(json: str,
-                           params: CalibrationMarsTxTz,
-                           indexes: Optional[Iterable[int]]=None) -> None:
+def _calibration_mars_tx_tz(params: CalibrationMarsTxTz,
+                            gonioref: Optional[GoniometerRefinement]=None,
+                            indexes: Optional[Iterable[int]]=None) -> GoniometerRefinement:
     """Do a calibration with a bunch of images"""
 
     # Definition of the geometry refinement: the parameter order is
@@ -209,14 +235,15 @@ def calibration_mars_tx_tz(json: str,
         header of the image."""
         return (frame.tx, frame.tz)
 
-    gonioref = GoniometerRefinement(parameters,  # initial guess
-                                    bounds=bounds,
-                                    pos_function=pos_function,
-                                    trans_function=trans_function,
-                                    detector=detector,
-                                    wavelength=params.wavelength)
+    if gonioref is None:
+        print("Empty refinement object:")
+        gonioref = GoniometerRefinement(parameters,  # initial guess
+                                        bounds=bounds,
+                                        pos_function=pos_function,
+                                        trans_function=trans_function,
+                                        detector=detector,
+                                        wavelength=params.wavelength)
 
-    print("Empty refinement object:")
     print(gonioref)
 
     # Let's populate the goniometer refinement object with the know poni
@@ -249,49 +276,63 @@ def calibration_mars_tx_tz(json: str,
     for multi in [params]:
         with File(multi.filename, mode='r') as h5file:
             optimize_with_new_images_mars_tx_tz(h5file, multi, gonioref,
-                                                calibrant, indexes, pts_per_deg=10)
+                                                calibrant, indexes, pts_per_deg=1)
 
     for idx, sg in enumerate(gonioref.single_geometries.values()):
         sg.geometry_refinement.set_param(gonioref.get_ai(sg.get_position()).param)  # noqa
         jupyter.display(sg=sg)
 
-    gonioref.save(json)
+    return gonioref
 
+def calibration_mars_tx_tz(paramss: List[CalibrationMarsTxTz],
+                           json: Optional[str]=None) -> GoniometerRefinement:
+    gonioref = None
+    for params in paramss:
+        gonioref = _calibration_mars_tx_tz(params, gonioref)
+
+    if json is not None:
+        gonioref.save(json)
+
+    return gonioref
 
 def integrate_mars_tx_tz(json: str,
-              params: CalibrationMarsTxTz,
-              f: Callable[[ndarray], ndarray],
-              plot_calibrant: bool=False,
-              save: bool=False,
-              n: int=10000,
-              lst_mask: ndarray=None,
-              lst_flat: ndarray=None,
-              to_use: bool=False) -> None:
+                         paramss: List[CalibrationMarsTxTz],
+                         f: Callable[[ndarray], ndarray],
+                         plot_calibrant: bool=False,
+                         save: bool=False,
+                         n: int=10000,
+                         lst_mask: ndarray=None,
+                         lst_flat: ndarray=None,
+                         to_use: bool=False) -> None:
     """Integrate a file with a json calibration file"""
     gonio = pyFAI.goniometer.Goniometer.sload(json)
-    with File(params.filename, mode='r') as h5file:
-        images = []
-        positions = []
-        for frame in gen_metadata_idx_mars_tx_tz(h5file, params, to_use=to_use):
-            images.append(f(frame.image))
-            positions.append((frame.tx, frame.tz))
-        mai = gonio.get_mg(positions)
-        res = mai.integrate1d(images, n,
+    images = []
+    positions = []
+
+    for params in paramss:
+        with File(params.filename, mode='r') as h5file:
+            for frame in gen_metadata_idx_mars_tx_tz(h5file, params, to_use=to_use):
+                images.append(f(frame.image))
+                positions.append((frame.tx, frame.tz))
+
+
+    mai = gonio.get_mg(positions)
+    res = mai.integrate1d(images, n,
                               lst_mask=lst_mask, lst_flat=lst_flat)
-        if save is True:
-            try:
-                os.makedirs(params.basedir)
-            except os.error:
-                pass
-            numpy.savetxt(os.path.join(params.basedir,
-                                       os.path.basename(params.filename) + '.txt'),
-                          numpy.vstack([res.radial, res.intensity]).T)
-        if plot_calibrant:
-            calibrant = get_calibrant(params.calibrant, params.wavelength)
-            jupyter.plot1d(res, calibrant)
-        else:
-            jupyter.plot1d(res)
-        return res
+    if save is True:
+        try:
+            os.makedirs(params.basedir)
+        except os.error:
+            pass
+        numpy.savetxt(os.path.join(params.basedir,
+                                   os.path.basename(params.filename) + '.txt'),
+                      numpy.vstack([res.radial, res.intensity]).T)
+    if plot_calibrant:
+        calibrant = get_calibrant(params.calibrant, params.wavelength)
+        jupyter.plot1d(res, calibrant)
+    else:
+        jupyter.plot1d(res)
+    return res
 
 # Calibration K6C (Diffabs)
 
