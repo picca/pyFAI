@@ -133,7 +133,8 @@ CalibrationMarsTxTz = NamedTuple("CalibrationMarsTxTz",
                                   ("calibrant", Calibrant),
                                   ("detector", Detector),
                                   ("wavelength", Wavelength),
-                                  ("functions", Functions)])  # noqa
+                                  ("functions", Functions),
+                                  ("max_rings", int)])  # noqa
 
 def gen_metadata_idx_mars_tx_tz(h5file: File,
                                 calibration: CalibrationMarsTxTz,
@@ -197,7 +198,7 @@ def optimize_with_new_images_mars_tx_tz(h5file: File,
         sg = gonioref.new_geometry(frame.label, image=frame.image,
                                    metadata=frame,
                                    calibrant=calibrant)
-        print(sg.extract_cp(max_rings=6, pts_per_deg=pts_per_deg))
+        print(sg.extract_cp(max_rings=calibration.max_rings, pts_per_deg=pts_per_deg))
 
         # filter the cp to remove unwanted values.
         cp = sg.control_points
