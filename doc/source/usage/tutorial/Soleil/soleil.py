@@ -13,6 +13,10 @@ from h5py import Dataset, File
 from itertools import cycle, repeat
 from numpy import arange, arctan, array, ndarray, logical_or, ma, rad2deg, where, zeros_like
 from numpy.ma import MaskedArray
+try:
+    from pyFAI.detectors import Detector as PyFAIDetector
+except ImportError:
+    from pyFAI import Detector as PyFAIDetector
 from pyFAI.goniometer import GeometryTransformation, GoniometerRefinement
 from pyFAI.gui import jupyter
 
@@ -336,9 +340,10 @@ def integrate_mars_tx_tz(json: str,
             os.makedirs(params.basedir)
         except os.error:
             pass
-        numpy.savetxt(os.path.join(params.basedir,
-                                   os.path.basename(params.filename) + '.txt'),
-                      numpy.vstack([res.radial, res.intensity]).T)
+        ofilename = os.path.join(params.basedir,
+                                 os.path.basename(params.filename) + '.txt')
+        numpy.savetxt(ofilename, numpy.vstack([res.radial, res.intensity]).T)
+        print("Saves as: {}".format(ofilename))
     if no_plot is False:
         if plot_calibrant:
             calibrant = get_calibrant(params.calibrant, params.wavelength)
@@ -528,7 +533,7 @@ def get_calibrant(calibrant: Calibrant,
     return pyFAI_calibrant
 
 
-def get_detector(detector: Detector) -> pyFAI.Detector:
+def get_detector(detector: Detector) -> PyFAIDetector:
     return pyFAI.detector_factory(detector)
 
 
