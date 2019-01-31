@@ -733,38 +733,22 @@ class Cirpad2(Detector):
                  u[1] * u[2] * one_minus_c + u[0] * s,
                  c + u[2] ** 2 * one_minus_c]]
 
-    @staticmethod
-    def _rotation(md, rot):
-        shape = md.shape
-        axe = numpy.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])  # Maybe a parameter
-        P = functools.reduce(numpy.dot, [Cirpad2._M(numpy.radians(rot[i]), axe[i]) for i in range(len(rot))])
-        try:
-            nmd = numpy.transpose(numpy.reshape(numpy.tensordot(P, numpy.reshape(numpy.transpose(md), (3, shape[0] * shape[1] * 4)), axes=1), (3, 4, shape[1], shape[0])))
-        except IndexError:
-            nmd = numpy.transpose(numpy.tensordot(P, numpy.transpose(md), axes=1))
-        return(nmd)
 
     def __init__(self, pixel1=130e-6, pixel2=130e-6, dist=0, poni1=0, poni2=0, rot1=0, rot2=0, rot3=0):
         Detector.__init__(self, pixel1=pixel1, pixel2=pixel2, max_shape=self.MAX_SHAPE)
         from .. import geometry
-        self.modules = list()
         self.modules_geometry = list()
         self.modules_param = list()
         deltaZ = 0
         deltaY = 0
-        # init 20 modules as 20 detectors.
-        for i in range(20):
-            module = _Cirpad2Module()
+        for i in range(20):  # init 20 modules as 20 detectors.
             mdgeometry = geometry.Geometry(dist=dist, poni1=poni1, poni2=poni2,
                                            rot1=rot1, rot2=rot2, rot3=rot3,
-                                           pixel1=pixel1, pixel2=pixel2, detector=module)
-            self.modules.append(module)
+                                           pixel1=pixel1, pixel2=pixel2, detector=_Cirpad2Module())
             self.modules_geometry.append(mdgeometry)
             self.modules_param.append([0.65 + deltaZ, deltaY, 0, 0, numpy.deg2rad(-i * 6.74), 0])
             deltaZ += 0.0043
             deltaY -= 0.0017
-            # deltaZ -= numpy.sin(numpy.deg2rad(-i*6.74))
-            # deltaY -= numpy.cos(numpy.deg2rad(-i*6.74))
 
     def get_config(self):
         """Return the configuration with arguments to the constructor
@@ -820,10 +804,11 @@ class Cirpad2(Detector):
         corners[:, :, 3, 1] = pixel_center1 - pixel_size1 / 2.0
         corners[:, :, 3, 2] = pixel_center2 + pixel_size2 / 2.0
 
-        modules_position = list()
+        _Cirpad = list()
+        # Seeks params for each detector of Cirpad.
         for param, geometry in zip(self.modules_param, self.modules_geometry):
             zyx = geometry.calc_pos_zyx(d0=0, d1=0, d2=0, param=param, corners=True)
-            modules_position.append(numpy.moveaxis(zyx, 0, -1))
+            _Cirpad.append(numpy.moveaxis(zyx, 0, -1))
             """
             c0 = set_modules_position[i][0,0,0,:]
             c1 = set_modules_position[i][559,0,0,:]
@@ -832,7 +817,7 @@ class Cirpad2(Detector):
             size2 = numpy.sqrt((c0[0]-c2[0])**2 + (c0[1]-c2[1])**2 +(c0[2]-c2[2])**2 )
             print(i, size1, size2)
             """
-        result = numpy.concatenate(modules_position, axis=0)
+        result = numpy.concatenate(_Cirpad, axis=0)
         result = numpy.ascontiguousarray(result, result.dtype)
         return result
 
