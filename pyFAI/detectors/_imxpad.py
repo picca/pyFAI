@@ -41,7 +41,9 @@ __status__ = "production"
 
 import functools
 import json
+import math
 import numpy
+
 from collections import OrderedDict
 from ._common import Detector
 from pyFAI.utils import mathutil
@@ -736,9 +738,14 @@ class Cirpad2(Detector):
 
     def __init__(self, pixel1=130e-6, pixel2=130e-6, dist=0, poni1=0, poni2=0, rot1=0, rot2=0, rot3=0):
         Detector.__init__(self, pixel1=pixel1, pixel2=pixel2, max_shape=self.MAX_SHAPE)
+
         from .. import geometry
+
         self.modules_geometry = list()
         self.modules_param = list()
+        alpha = math.radians(-6.74)
+        d = 0.6889
+        m = 0.0751
         deltaZ = 0
         deltaY = 0
         for i in range(20):  # init 20 modules as 20 detectors.
@@ -746,9 +753,11 @@ class Cirpad2(Detector):
                                            rot1=rot1, rot2=rot2, rot3=rot3,
                                            pixel1=pixel1, pixel2=pixel2, detector=_Cirpad2Module())
             self.modules_geometry.append(mdgeometry)
-            self.modules_param.append([0.65 + deltaZ, deltaY, 0, 0, numpy.deg2rad(-i * 6.74), 0])
-            deltaZ += 0.0043
-            deltaY -= 0.0017
+            deltaZ = 4 * (d * (1 - math.cos(alpha)) - m * math.sin(alpha))
+            deltaY = (m * math.cos(alpha) - d * math.sin(alpha)) / 3.5
+            self.modules_param.append([d - deltaZ, deltaY, 0, 0, i * alpha, 0])
+
+
 
     def get_config(self):
         """Return the configuration with arguments to the constructor
@@ -804,19 +813,11 @@ class Cirpad2(Detector):
         corners[:, :, 3, 1] = pixel_center1 - pixel_size1 / 2.0
         corners[:, :, 3, 2] = pixel_center2 + pixel_size2 / 2.0
 
-        _Cirpad = list()
         # Seeks params for each detector of Cirpad.
+        _Cirpad = list()
         for param, geometry in zip(self.modules_param, self.modules_geometry):
             zyx = geometry.calc_pos_zyx(d0=0, d1=0, d2=0, param=param, corners=True)
             _Cirpad.append(numpy.moveaxis(zyx, 0, -1))
-            """
-            c0 = set_modules_position[i][0,0,0,:]
-            c1 = set_modules_position[i][559,0,0,:]
-            c2 = set_modules_position[i][0,119,0,:]
-            size1 = numpy.sqrt((c0[0]-c1[0])**2 + (c0[1]-c1[1])**2 +(c0[2]-c1[2])**2 )
-            size2 = numpy.sqrt((c0[0]-c2[0])**2 + (c0[1]-c2[1])**2 +(c0[2]-c2[2])**2 )
-            print(i, size1, size2)
-            """
         result = numpy.concatenate(_Cirpad, axis=0)
         result = numpy.ascontiguousarray(result, result.dtype)
         return result
