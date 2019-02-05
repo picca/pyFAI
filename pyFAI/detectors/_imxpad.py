@@ -38,6 +38,7 @@ import math
 import numpy
 
 from collections import OrderedDict
+from numpy import ndarray  # noqa for mypy
 
 from pyFAI.utils import mathutil
 from ._common import Detector
@@ -294,7 +295,9 @@ class ImXPadS70(ImXPadS10):
     BORDER_SIZE_RELATIVE = 2.5
     force_pixel = True
     aliases = ["Imxpad S70"]
-    PIXEL_EDGES = None  # array of size max_shape+1: pixels are contiguous
+
+    # array of size max_shape+1: pixels are contiguous
+    PIXEL_EDGES = None  # type: ndarray
 
     def __init__(self, pixel1=130e-6, pixel2=130e-6):
         ImXPadS10.__init__(self, pixel1=pixel1, pixel2=pixel2)
@@ -751,7 +754,9 @@ class _Cirpad2Module(ImXPadS70):
     BORDER_SIZE_RELATIVE = 2.5
     force_pixel = True
     aliases = ["Cirpad2Module"]
-    PIXEL_EDGES = None  # array of size max_shape+1: pixels are contiguous
+
+    # array of size max_shape+1: pixels are contiguous
+    PIXEL_EDGES = None  # type: ndarray
 
     def __init__(self, pixel1=130e-6, pixel2=130e-6):
         super(_Cirpad2Module, self).__init__(pixel1=pixel1, pixel2=pixel2)
