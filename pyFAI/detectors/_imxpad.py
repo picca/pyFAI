@@ -31,13 +31,12 @@
 from __future__ import (print_function, division, absolute_import,
                         with_statement)
 
-import functools
 import json
 import logging
 import math
 import numpy
 
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 from numpy import ndarray  # noqa for mypy
 
 from pyFAI.utils import mathutil
@@ -534,6 +533,9 @@ class _Cirpad2Module(ImXPadS70):
         super(_Cirpad2Module, self).__init__(pixel1=pixel1, pixel2=pixel2)
 
 
+CirpadCalib = namedtuple("CirpadCalib", "dest poni1 poni2 rot1 rot2 rot3")
+
+
 class Cirpad(Detector):
     MAX_SHAPE = (11200, 120)  # max size of the detector as the 20 detector
     IS_FLAT = False
@@ -570,40 +572,44 @@ class Cirpad(Detector):
                  u[1] * u[2] * one_minus_c + u[0] * s,
                  c + u[2] ** 2 * one_minus_c]]
 
-    def __init__(self, pixel1=130e-6, pixel2=130e-6,
-                 dist=0, poni1=0, poni2=0, rot1=0, rot2=0, rot3=0):
+    @staticmethod
+    def _calibs():
+        """A calibration with a theoretical CirPAd description.  This
+        calibration can be used as an initial guess for real
+        calibration.
+        """
+        calibs = []  # type: List[CirpadCalib]
+        alpha = math.radians(-6.74)
+        d = 0.6889  # center to first module distance
+        m = 0.0751  # height of the module
+        dz = 0
+        dy = 0
+        for i in range(20):
+            dz = 4 * (d * (1 - math.cos(alpha)) - m * math.sin(alpha))
+            dy = (m * math.cos(alpha) - d * math.sin(alpha)) / 3.5
+            calibs.append(CirpadCalib(d - dz, dy, 0, 0, i * alpha, 0))
+        return calibs
+
+    def __init__(self, pixel1=130e-6, pixel2=130e-6, calibs=None):
         Detector.__init__(self, pixel1=pixel1, pixel2=pixel2,
                           max_shape=self.MAX_SHAPE)
 
         from ..geometry import Geometry
 
-        self.modules_geometry = []  # type: List[Geometry]
-        self.modules_param = []  # type: List[List[float]]
-        alpha = math.radians(-6.74)
-        d = 0.6889
-        m = 0.0751
-        deltaZ = 0
-        deltaY = 0
-        for i in range(20):  # init 20 modules as 20 detectors.
-            mdgeometry = Geometry(dist=dist, poni1=poni1, poni2=poni2,
-                                  rot1=rot1, rot2=rot2, rot3=rot3,
-                                  pixel1=pixel1, pixel2=pixel2,
-                                  detector=_Cirpad2Module())
-            self.modules_geometry.append(mdgeometry)
-            deltaZ = 4 * (d * (1 - math.cos(alpha)) - m * math.sin(alpha))
-            deltaY = (m * math.cos(alpha) - d * math.sin(alpha)) / 3.5
-            self.modules_param.append([d - deltaZ, deltaY, 0, 0, i * alpha, 0])
+        if calibs is None:
+            self._calibs = self._calibs()
+        else:
+            self._calibs = calibs
+        self.geometries = [Geometry(*calib,
+                                    pixel1=pixel1, pixel2=pixel2,
+                                    detector=_Cirpad2Module())
+                           for calib in self._calibs]
 
     def get_config(self):
         """Return the configuration with arguments to the constructor
         :return: dict with param for serialization
         """
-        return OrderedDict((("distance", self.dist),
-                            ("poni1", self.poni1),
-                            ("poni2", self.poni2),
-                            ("rot1", self.rot1),
-                            ("rot2", self.rot2),
-                            ("rot3", self.rot3)))
+        return OrderedDict((("calibs", self._calibs)))
 
     def _calc_pixels_size(self, length, module_size, pixel_size):
         size = numpy.ones(length)
@@ -614,50 +620,13 @@ class Cirpad(Detector):
         return pixel_size * size
 
     def _get_pixel_corners(self):
-        pixel_size1 = self._calc_pixels_size(self.MEDIUM_MODULE_SIZE[0],
-                                             self.MODULE_SIZE[0],
-                                             self.PIXEL_SIZE[0])
-        pixel_size2 = (numpy.ones(self.MEDIUM_MODULE_SIZE[1]) * self.PIXEL_SIZE[1]).astype(numpy.float32)  # noqa
-        # half pixel offset
-        pixel_center1 = pixel_size1 / 2.0  # half pixel offset
-        pixel_center2 = pixel_size2 / 2.0
-        # size of all preceeding pixels
-        pixel_center1[1:] += numpy.cumsum(pixel_size1[:-1])
-        pixel_center2[1:] += numpy.cumsum(pixel_size2[:-1])
-
-        pixel_center1.shape = -1, 1
-        pixel_center1.strides = pixel_center1.strides[0], 0
-
-        pixel_center2.shape = 1, -1
-        pixel_center2.strides = 0, pixel_center2.strides[1]
-
-        pixel_size1.shape = -1, 1
-        pixel_size1.strides = pixel_size1.strides[0], 0
-
-        pixel_size2.shape = 1, -1
-        pixel_size2.strides = 0, pixel_size2.strides[1]
-
-        # Position of the first module
-        corners = numpy.zeros((self.MEDIUM_MODULE_SIZE[0],
-                               self.MEDIUM_MODULE_SIZE[1], 4, 3),
-                              dtype=numpy.float32)
-        corners[:, :, 0, 1] = pixel_center1 - pixel_size1 / 2.0
-        corners[:, :, 0, 2] = pixel_center2 - pixel_size2 / 2.0
-        corners[:, :, 1, 1] = pixel_center1 + pixel_size1 / 2.0
-        corners[:, :, 1, 2] = pixel_center2 - pixel_size2 / 2.0
-        corners[:, :, 2, 1] = pixel_center1 + pixel_size1 / 2.0
-        corners[:, :, 2, 2] = pixel_center2 + pixel_size2 / 2.0
-        corners[:, :, 3, 1] = pixel_center1 - pixel_size1 / 2.0
-        corners[:, :, 3, 2] = pixel_center2 + pixel_size2 / 2.0
-
         # Seeks params for each detector of Cirpad.
-        _Cirpad = list()
-        for param, geometry in zip(self.modules_param, self.modules_geometry):
-            zyx = geometry.calc_pos_zyx(d0=0, d1=0, d2=0, param=param,
-                                        corners=True)
-            _Cirpad.append(numpy.moveaxis(zyx, 0, -1))
-        result = numpy.concatenate(_Cirpad, axis=0)
-        result = numpy.ascontiguousarray(result, result.dtype)
+        modules = list()
+        for geometry in self.geometries:
+            zyx = geometry.calc_pos_zyx(d0=0, d1=0, d2=0, corners=True)
+            modules.append(numpy.moveaxis(zyx, 0, -1))
+        result = numpy.concatenate(modules, axis=0)
+        result = numpy.ascontiguousarray(result)
         return result
 
     def get_pixel_corners(self):
