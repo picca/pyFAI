@@ -579,15 +579,20 @@ class Cirpad(Detector):
         calibration.
         """
         calibs = []  # type: List[CirpadCalib]
-        alpha = math.radians(-6.74)
-        d = 0.6889  # center to first module distance
-        m = 0.0751  # height of the module
-        dz = 0
-        dy = 0
-        for i in range(20):
-            dz = 4 * (d * (1 - math.cos(alpha)) - m * math.sin(alpha))
-            dy = (m * math.cos(alpha) - d * math.sin(alpha)) / 3.5
-            calibs.append(CirpadCalib(d - dz, dy, 0, 0, i * alpha, 0))
+        alpha = math.radians(6.74)
+        d = 0.64234  # center to first module distance
+        m = 0.07514 + 2*0.42e-3 + 5*.13e-3
+        dz = 0.0
+        dy = 0.0
+        calibs = [CirpadCalib(d, 0, 0, 0, 0, 0)]
+        for i in range(1, 20):
+            dz += m * math.sin((i-1) * alpha)
+            dy += m * math.cos((i-1) * alpha)
+            zi = d - dz
+            yi = dy
+            z = zi * math.cos(i * -alpha) - yi * math.sin(i * -alpha)
+            y = zi * math.sin(i * -alpha) + yi * math.cos(i * -alpha)
+            calibs.append(CirpadCalib(z, -y, 0, 0, i * -alpha, 0))
         return calibs
 
     def __init__(self, pixel1=130e-6, pixel2=130e-6, calibs=None):
@@ -636,7 +641,7 @@ class Cirpad(Detector):
                     self._pixel_corners = self._get_pixel_corners()
         return self._pixel_corners
 
-    # TODO !!!
+    # TODO this method should be identical for all 3D detectors !!!
     def calc_cartesian_positions(self, d1=None, d2=None, center=True,
                                  use_cython=True):
         if (d1 is None) or d2 is None:
